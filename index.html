@@ -1,0 +1,365 @@
+ <!DOCTYPE html>
+<html>
+<style>
+    body {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%; margin: 0;
+        background: #ddd;
+        display: flex; flex-direction: row;
+        font-size: 20px;
+        color: #ccc;
+        font-family: "Roboto", Arial, sans-serif;
+    }
+    #menu {
+        background: #333;
+        padding: 30px 20px;
+        display: flex;
+        flex-direction: column;
+    }
+    .menu-item {
+        margin-bottom: 40px;
+    }
+    .menu-item label {
+        display: block;
+    }
+    #classroom {
+        overflow: auto;
+    }
+    #container {
+        white-space: nowrap;
+    }
+    #podium {
+        width: 200px;
+        height: 100px;
+        margin: 20px auto;
+        background: #225544;
+        border: 2px solid #333;
+        border-radius: 2px;
+        position: relative;
+    }
+    .group {
+        display: inline-block;
+        margin: 50px 50px;
+        boxShadow: 20px 20px 20px 10px rgb(0 0 0 50%);
+    }
+    .col {
+        width: 150px;
+        height: 100px;
+        background: #333;
+        border: 1px solid #555;
+        display: inline-block;
+        position: relative;
+    }
+    .name {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 16px;
+    }
+    label {
+        margin-bottom: 10px;
+    }
+    textarea {
+        background: #555;
+        color: #ddd;
+        border-color: #777;
+        border-radius: 5px;
+        font-size: 14px;
+    }
+    button {
+        cursor: pointer;
+        padding: 15px !important;
+    }
+</style>
+
+<body>
+
+<div id="menu">
+    <div class="menu-item">
+        <label for="students">STUDENTS</label>
+        <textarea
+            id="students" name="students" rows="10" cols="30"
+            onchange="onNamesChange()" onkeyup="onNamesChange()">
+        </textarea>
+    </div>
+    <div class="menu-item">
+        <label for="desks-input">DESKS</label>
+        <textarea
+            id="desks-input" name="desks-input" rows="6" cols="30"
+            onchange="onDeskLayoutChange()" onkeyup="onDeskLayoutChange()">
+        </textarea>
+    </div>
+    <button onclick="setSeed(getSeed() + 1)" style="font-size: 20px; padding: 10px 20px;">
+        RANDOMIZE!
+    </button>
+</div>
+<div id="classroom" style="flex: 1;">
+    <div id="podium-row" style="width: 100%;">
+        <div id="podium">
+            <div class="name">
+                TEACHER
+            </div>
+        </div>
+    </div>
+    <div id="container" style="width: 100%;"></div>
+</div>
+
+</body>
+<script type="text/javascript">
+
+    const debounce = function () {
+        let _debounceMap = new Map();
+
+        return function (fn, waitForMilliseconds) {
+            const existingTimeoutId = _debounceMap.get(fn);
+            if (existingTimeoutId) {
+                clearTimeout(existingTimeoutId);
+            }
+            const timeoutId = setTimeout(fn, waitForMilliseconds);
+            _debounceMap.set(fn, timeoutId);
+        }
+    }();
+
+    const createRandomGenerator = function(seed) {
+        function sfc32(a, b, c, d) {
+            return function() {
+                a |= 0; b |= 0; c |= 0; d |= 0;
+                let t = (a + b | 0) + d | 0;
+                d = d + 1 | 0;
+                a = b ^ b >>> 9;
+                b = c + (c << 3) | 0;
+                c = (c << 21 | c >>> 11);
+                c = c + t | 0;
+                return (t >>> 0) / 4294967296;
+            }
+        }
+
+        const rand = sfc32(0x9E3779B9, 0x243F6A88, 0xB7E15162, seed ^ 0xDEADBEEF);
+        for (var i = 0; i < 15; i++) rand();
+        return rand;
+    };
+
+    function getQueryParam(key) {
+        return new URL(window.location.href).searchParams.get(key);
+    }
+
+    function setQueryParam(key, value) {
+        const url = new URL(window.location.href);
+        url.searchParams.set(key, value);
+        window.history.pushState(null, null, url.toString());
+    }
+
+    function getLocalStorage(key) {
+        return window.localStorage.getItem(key);
+    }
+
+    function setLocalStorage(key, value) {
+        return window.localStorage.setItem(key, value);
+    }
+
+    function createState({ key, defaultValue, parse, stringify }) {
+        stringify = stringify || = JSON.stringify;
+        parse = parse || JSON.parse;
+
+        let state = parse(getQueryParam(key)) || parse(getLocalStorage(key)) || defaultValue;
+        let stateString = stringify(state);
+        let callbacks = new Set();
+
+        return [() => state, (newState) => {
+            const newStateString = stringify(newState);
+            if (newStateString === stateString) {
+                return;
+            }
+            setQueryParam(key, newStateString);
+            setLocalStorage(key, newStateString);
+            state = newState;
+            for (let callback of callbacks) {
+                try {
+                    callback();
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        }, (callback) => {
+            callbacks.add(callback);
+            return () => {
+                callbacks.remove(callback);
+            };
+        }];
+    }
+
+    const [getNames, setNames, listenToNameChanges] = createState({
+        key: 'names',
+        defaultValue: [],
+    });
+    const [getDeskLayout, setDeskLayout, listenToDeskLayoutChanges] = createState({
+        key: 'deskLayout',
+        defaultValue: '',
+        parse: getDeskLayoutFromString,
+        stringify: 
+    });
+
+    function getDeskLayoutFromString(deskStr) {
+        return deskStr.split('\n').map((rowStr) => {
+            return rowStr.split(' ').map((groupStr) => groupStr.length);
+        });
+    }
+
+    function getStringFromDeskLayout(deskLayout) {
+        let str = '';
+        for (let row of deskLayout) {
+            for (let groupSize of row) {
+                str += 'x'.repeat(groupSize);
+            }
+            str += '\n';
+        }
+        return str;
+    }
+
+    function getNamesFromString(namesStr) {
+        return namesStr.split(',').map((name) => {
+            return name.trim();
+        }).filter((name) => name);
+    }
+
+    function setNamesError(message) {
+        // TODO:
+    }
+
+    function setDeskLayoutError(message) {
+        // TODO:
+    }
+
+    const [getNames, setNames] = function() {
+        const key = 'names';
+        let _names = getNamesFromString(getQueryParam(key) || getLocalStorage(key) || '');
+
+        return [() => _names.slice(), (names) => {
+            if (names.join('¤!=!¤') === _names.join('¤!=!¤')) {
+                return;
+            }
+            _names = names;
+            namesInput.value = names.join(', ');
+            setQueryParam(key, names);
+            setLocalStorage(key, names);
+            triggerRender();
+        }];
+    }();
+
+    const [getDeskLayout, setDeskLayout] = function() {
+        const key = 'deskLayout';
+        let _deskLayout = getDeskLayoutFromString(getQueryParam(key) || getLocalStorage(key) || '');
+
+        return [() => _deskLayout, (deskLayout) => {
+            const deskLayoutStr = getStringFromDeskLayout(deskLayout);
+            if (deskLayoutStr === getStringFromDeskLayout(_deskLayout)) {
+                return;
+            }
+            _deskLayout = deskLayout;
+            deskLayout.value = deskLayoutStr;
+            console.log(deskLayoutStr);
+            setQueryParam(key, deskLayoutStr);
+            setLocalStorage(key, deskLayoutStr);
+            triggerRender();
+        }];
+    }();
+
+    const [getSeed, setSeed] = function() {
+        const key = 'seed';
+        let _seed = getQueryParam(key) || getLocalStorage(key) || 1;
+
+        return [() => _seed, (newSeed) => {
+            if (newSeed === _seed) {
+                return;
+            }
+            _seed = newSeed;
+            setQueryParam(newSeed);
+            setLocalStorage(newSeed);
+            triggerRender();
+        }]
+    }();
+
+    const namesInput = document.getElementById('students');
+    const deskInput = document.getElementById('desks-input');
+
+    function onNamesChange() {
+        console.log('names changed');
+        try {
+            const names = getNamesFromString(namesInput.value);
+            setNamesError(null);
+            setNames(names);
+        } catch(error) {
+            console.error(error);
+            setNamesError('Failed to interpret the names input!');
+        }
+    }
+
+    function onDeskLayoutChange() {
+        console.log('desk layout changed');
+        try {
+            const deskLayout = getDeskLayoutFromString(deskInput.value);
+            setDeskLayoutError(null);
+            setDeskLayout(deskLayout);
+        } catch (error) {
+            console.error(error);
+            setDeskLayoutError('Failed to interpret desk layout!');
+        }
+    }
+
+    function render() {
+        const seed = getSeed();
+        const getRandom = createRandomGenerator(1337 + seed);
+        const names = getNamesFromString(namesInput.value).sort();
+        const rows = getDeskLayoutFromString(deskInput.value);
+        // TODO: Add warning if num desks is less than num names
+        const container = document.getElementById('container');
+        container.innerHTML = '';
+        rows.forEach((row) => {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'row';
+            row.forEach((col) => {
+                const groupEl = document.createElement('div');
+                groupEl.className = 'group';
+
+                for (let i=0; i<col; i++) {
+                    const colEl = document.createElement('div');
+                    colEl.className = 'col';
+
+                    const nameEl = document.createElement('div');
+                    nameEl.className = 'name';
+
+                    if (names.length > 0) {
+                        // Find random name
+                        const index = Math.floor(getRandom()*names.length);
+                        const name = names[index];
+                        names.splice(index, 1);
+                        nameEl.innerHTML = name.toUpperCase();
+                    } else {
+                        nameEl.innerHTML = '---';
+                    }
+
+                    colEl.appendChild(nameEl);
+                    groupEl.appendChild(colEl);
+                }
+                rowEl.appendChild(groupEl);
+            });
+            container.appendChild(rowEl);
+        });
+    }
+
+    function triggerRender() {
+        debounce(render, 10);
+    }
+
+    setNames([ "Luca", "Kaja", "Johannes T", "Johannes S", "Herman", "Anton", "Heike", "Amanda", "Peder", "Ola", "Sandra", "Nanna", "Aurora", "Michael", "Marte", "Massimo", "Romeo", "Vetle", "Tim", "Fredrik", "Erik", "Marius", "Emily", "Elvira", "Hanna", "Elias", "Audun", "Maya",
+    ]);
+    setDeskLayout("xxx xx xx\nxxx xx xx\nxxx xx xx\nxxx xx xx\nxxx xxx");
+    setSeed(1);
+
+</script>
+</html>
